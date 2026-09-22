@@ -1,0 +1,229 @@
+=======================================================================
+02_PLAY_ORACLE — fix ONE broken oracle
+Paste after 00_CORPUS. This is the highest-volume unit of work.
+=======================================================================
+
+Tags as in 00_CORPUS: [RULE] does not expire. [MECHANIC] measured, dated,
+your observation beats it. [SNAPSHOT] stale on sight.
+
+The ORACLE is the reference implementation under solution/. It exists to
+prove the task is doable and to calibrate the rubric. When it fails, the
+task is BROKEN — not hard.
+
+[RULE] An oracle that cannot pass is a broken task, not a hard one. The
+oracle must clear reward >= 0.9 (oracle_reward_min).
+
+[RULE] ON AN ORACLE FIX, DIFFICULTY DOES NOT MATTER. Two things only:
+fix it, and break nothing. Add the difficulty tag anyway because the
+schema wants one; do not spend a round reasoning about the band.
+
+WHICH CHECKS ARE GATES, which fire on a push, and which files are
+byte-pinned are in 00_CORPUS sections 1 and 5, in this same prompt. This
+file owns the RUNNABLE COMMANDS below and the diagnosis.
+
+
+=======================================================================
+1. START HERE — THE STATIC GATE RUNS ON YOUR MACHINE
+=======================================================================
+
+[MECHANIC 2026-09-08] THIS IS THE FACT THAT CHANGES HOW YOU WORK: the
+entire deterministic layer runs locally with NO Docker, NO network and NO
+credentials. python3 and the repo checkout are enough for nine of the
+eleven; the two marked below also want a binary, and they FAIL LOUDLY
+when it is missing rather than skipping, so you will never mistake an
+uninstalled tool for a pass.
+
+  bash policy/check-shape.sh
+  bash policy/check-boot-contract.sh
+  bash policy/check-conversion.sh
+  bash policy/check-golden.sh
+  bash policy/check-structured.sh        # needs conftest
+  bash policy/check-cue.sh               # needs cue v0.17.1
+  bash policy/check-backend-contract.sh
+  bash policy/check-offline.sh
+  bash policy/check-adapters.sh
+  python3 tools/lint_zero_rewards.py
+  python3 tools/lint_dependency_containment.py
+
+So you can find AND fix your own red without anyone fetching anything for
+you. Do not report "I cannot see the CI failure" until you have run these
+— most reds are here, and they reproduce exactly.
+
+ONLY THE ORACLE REWARD ITSELF NEEDS CI. That is the one number you cannot
+produce locally.
+
+[MECHANIC] The Docker daemon does not work in a worker session. The
+binary exists and `docker build` will hang or fail. Any instruction
+telling you to build an image or run a container locally CANNOT be
+followed. That rules out tools/boot-contract/run.sh and a local harbor
+run — but NOT the list above, none of which needs a container.
+
+
+=======================================================================
+2. THE SHAPES A BROKEN ORACLE COMES IN
+=======================================================================
+Ordered by how often they turn up, cheapest diagnosis first.
+
+### (a) The oracle does not implement its declared stack or backend
+check-conversion.sh, no exemptions. task.toml declares a frontend stack
+and a backend id; the oracle must actually be built in them. Relabeling
+is not a fix — assignments are honest, derived from the oracle. If the
+label is wrong and the code is right, the LABEL moves (via
+tools/stamp_stack.py, never by hand). If the code is wrong, it is a
+rebuild, which is a much bigger job — say so rather than starting one.
+
+### (b) The oracle does not boot the way the verifier starts it
+check-boot-contract.sh. `npm start` must serve http://localhost:3000.
+Two recurring causes:
+  - no `start` script in package.json at all
+  - a socket bound to an IPv4-only address the judge never opens
+This one HIDES: a task whose oracle never boots grades as HARD rather
+than broken, so it can sit in the corpus looking like a good task.
+
+### (c) A dependency the oracle imports is not in the lockfile
+python3 tools/lint_dependency_containment.py. The image installs from
+environment/package-lock.json alone, so a missing `dependencies` entry
+means the served app cannot boot offline.
+This is a REAL GAP, not belt-and-braces: check-golden.sh never compares
+the oracle manifest against the lockfile, and skips the comparison
+entirely for a `custom` stack. The lint is run by hand and covers it.
+FIXABLE: package.json and package-lock.json are the two golden-pinned
+files that ARE editable.
+
+### (d) The seeder poisons an assertion
+The programmatic tests assert counts and values against seeded data. A
+seeder that copies rows across parent records turns a `count(*) == 1`
+into 2, and the criterion reads as a product bug when it is a fixture
+bug. Symptom: the backend group lands just under a clean fraction
+(e.g. 17/19 = 0.8947) with the failures clustered on count assertions.
+Read the seeder before you read the app.
+
+### (e) Layout / contract mismatch
+check-backend-contract.sh. A backend declared with a SPLIT layout while
+the task ships a root-level app, or the Backend prose line not matching
+the catalog. Check whether it reproduces on main first — this shape is
+frequently pre-existing corpus debt (section 4).
+
+### (f) Shape drift by ADDITION
+check-shape.sh names every entry a task MAY hold. A stray notes file, a
+fixture, a second README, a committed dist/ or node_modules inside a task
+all fail here even though no rule mentions them by name.
+
+
+### (g) The red is not about your task at all — the scope widened
+[MECHANIC 2026-09-21] If your diff touches stacks/, policy/,
+tools/stamp_stack.py, one of the corpus-wide lint_* hooks, or
+.pre-commit-config.yaml, `policy/pr_task_scope.sh` widens the run from
+your task to the WHOLE corpus (~5,800 tasks). Two consequences, and both
+read as something else:
+  - a layer names tasks you have never touched. That is main's debt
+    dragged into scope, not your repair (section 4).
+  - hooks exceed the 35-minute job budget and are KILLED, which the
+    check list reports as `cancelled` at an identical wall-clock. That
+    looks like a CI or runner problem and is not.
+The remedy is to split the widening file into its own PR, which is
+something the PR's author can do today. Check this BEFORE diagnosing a
+slow or cancelled leg as infrastructure.
+
+=======================================================================
+3. THE DIAGNOSTIC ORDER
+=======================================================================
+
+  1. Read the RED. Which layer, which task, which line. Not the summary.
+  2. Run THAT LAYER locally, scoped to the task. Confirm you reproduce
+     the same message. If you cannot reproduce it, stop and say so —
+     something differs between you and CI and guessing will waste a round.
+  3. Run it against origin/main, same scope. (section 4)
+  4. Read the artifact the layer complains about, in full, before editing.
+  5. Make the SMALLEST change that answers the message.
+  6. Re-run that layer, plus check-shape and check-golden, which catch
+     collateral damage.
+  7. Push. Record the SHA and what you ran.
+  8. Your push re-runs the PR gates (00_CORPUS section 5 says which). You
+     cannot read any of those verdicts yourself — say in your handoff
+     WHICH SHA you pushed and that the result is unread, rather than
+     reporting an older green as if it covered your change.
+
+
+=======================================================================
+4. REPRODUCE ON MAIN — the rule that keeps fixes small
+=======================================================================
+
+[RULE] Establish whether the failure reproduces on main BEFORE fixing it.
+Pre-existing corpus debt is a FINDING, not your repair.
+
+There IS a known-red baseline on unscoped runs — 00_CORPUS section 5
+names which layers carry it. If your task is on that list, the red
+predates you.
+
+What to do when it reproduces on main:
+  - say so precisely: the layer, the task, the identical message
+  - do NOT fix it inside this PR
+  - the finding is worth reporting on its own
+
+What NOT to do: add an exemption. There is no exemption list for
+check-conversion, deliberately. The fix for a named task is repairing the
+task, and the fix for someone else's named task is not yours today.
+
+
+=======================================================================
+5. WHAT YOU MAY AND MAY NOT TOUCH
+=======================================================================
+
+[RULE] Never hand-edit the byte-pinned files. The canonical list — and
+the two manifests that ARE editable, which is where a missing dependency
+gets fixed — is in 00_CORPUS section 1, along with the never-git-mv,
+never-delete-qc, no-provenance-comments and stateless-docs rules.
+
+A deliberate change to a pinned file is a GOLDEN BUMP, which is a
+project-level decision and not something to do inside an oracle fix. If
+your fix seems to require one, STOP and report that, because it almost
+certainly means you have misdiagnosed.
+
+
+=======================================================================
+6. A WORKED FIX — the seeder shape, end to end
+=======================================================================
+
+Task: a charter-manifest app. Backend group scoring 17/19 = 0.8947,
+under the 0.9 oracle bar. Two failing assertions, both `count(*) == 1`.
+
+DIAGNOSIS: the failing criteria were not about the same feature, which
+argued against a product bug. Both counted rows belonging to ONE parent
+flight. Reading the seeder (solution/app/backend/src/main.rs) showed it
+inserting the passengers and payload_items of flight CF-842 and then
+re-inserting the same rows under CF-845. Both counts read 2.
+
+FIX: 9 insertions, 6 deletions in the seeder. Zero changes to the app's
+behaviour, zero changes to tests/.
+
+PROOF: the backend group run against live Postgres, 19/19.
+
+WHY IT IS A GOOD FIX: it changed the fixture, not the product and not the
+rubric. Moving the assertion to `== 2` would also have gone green and
+would have been WRONG — it would have encoded the bug into the contract
+every future builder is graded against.
+
+[RULE] When a criterion and the oracle disagree, work out WHICH ONE IS
+WRONG before you move either. Changing the assertion to match the code is
+the tempting repair and it is usually the wrong one.
+
+
+=======================================================================
+7. HOW TO REPORT
+=======================================================================
+
+You are one pass. The next session sees nothing you saw.
+
+  WHAT I CHANGED   files and line counts
+  THE PROOF        the exact command and its output. If you could not
+                   prove it locally, write "none" — do not imply.
+  STATE            branch, head SHA, which layers you ran and their result
+  NEXT             the single next action
+  NOT VERIFIED     everything you assumed, including anything that needs
+                   CI (the oracle reward always does)
+
+[RULE] Stopping is a successful outcome. Two repair rounds on the same
+red, still red -> stop and report. A number flat or moving away across
+two rounds -> stop and report. Converging looks like 0.71 -> 0.50 ->
+0.38. Looping looks like 0.67 -> 0.86.

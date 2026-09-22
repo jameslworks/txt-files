@@ -1,0 +1,464 @@
+=======================================================================
+00_CORPUS — what vibecode-benchmark IS
+Paste this into EVERY session. Then paste exactly one playbook.
+
+THIS FILE OWNS THE REPO FACTS. The playbooks carry judgment and
+procedure; where a fact could go stale when the repo changes, it is
+written HERE and nowhere else, so there is one place to fix it.
+=======================================================================
+
+HOW TO READ THIS FILE
+  [RULE]      a decision. Does not expire. If you think a RULE is wrong,
+              say so and stop — do not route around it.
+  [MECHANIC]  how the system behaves, as measured on the date given. If
+              you OBSERVE something different, your observation wins and
+              this line is stale. Say which line, and carry on.
+  [SNAPSHOT]  a number from a point in time. Expected to be stale on
+              sight. Never make a decision on one without refreshing it.
+
+This file carries NOTHING about the fleet — no session ids, no live PR
+numbers, no rate-limit windows, no repo-migration state. That is the
+orchestrator's, and it lives in the orchestrator's own context. If you
+need one of those, ask for it; do not reconstruct it from here.
+
+The repo's own `CLAUDE.md` and `README.md` are checked in, maintained,
+and authoritative on mechanics. This file does not restate them. It
+carries the judgment a checked-in doc cannot: what the rules are FOR,
+and which mistakes people actually make.
+
+
+=======================================================================
+1. WHAT A TASK IS
+=======================================================================
+
+The repo is a Harbor task CORPUS, not an application. `tools/task_status.py
+list` enumerates it.
+
+A task is one directory. A coding agent is dropped into it with a brief,
+builds an app, and a judge scores the result against a rubric. The task
+is the whole apparatus: the brief, the sealed environment, the rubric,
+and a reference implementation that proves the task is doable.
+
+  task.toml         the manifest. Declares stack, backend, domain,
+                    difficulty, rubric_categories, the agent timeout.
+                    Everything downstream is checked against it.
+  instruction.md    the builder's COMPLETE input. There is no prompt
+                    template and no inliner. The bare product spec plus a
+                    `## Workspace & Build Contract` section.
+  environment/      the sealed container: Dockerfile, service config, and
+                    the stack manifests. Byte-pinned to policy/golden/.
+  tests/            the grading contract. workflows/workflows.toml is the
+                    judge's rubric; tests/backend/ and tests/frontend/
+                    are programmatic.
+  solution/         the ORACLE — a reference implementation. solve.sh
+                    plus solution/app/.
+  qc/               evidence: what was measured, when, by which run.
+                    OPTIONAL in the shape gate, and FORBIDDEN outright once
+                    a task ships — see section 2.
+
+check-shape.sh's CANONICAL list is the authority on this and is longer
+than the summary above; read it rather than trusting this paraphrase.
+
+[RULE] MOST "DUPLICATION" HERE IS THE DESIGN. Tasks are deliberately
+uniform and byte-identical across large surfaces so that a diff means
+something. Do not refactor toward DRY. `.cursor/BUGBOT.md` lists the
+intentional patterns that look like bugs; read it before you "fix" one.
+
+[RULE] A TASK'S TREE IS EXHAUSTIVELY DEFINED. policy/check-shape.sh names
+every entry a task MAY hold, so an ADDED file fails even though no rule
+mentions it. Drift by addition is invisible to a required-files list, and
+notes, fixtures, a second README and a committed dist/ have all shipped
+past green layers. Only solution/app/'s interior is free-form.
+
+### THE FILES YOU MAY NOT HAND-EDIT — the canonical list
+
+[RULE] These are byte-pinned to policy/golden/ and may never be edited by
+hand, in any playbook, on any kind of PR:
+
+  environment/*          EXCEPT package.json and package-lock.json,
+                         which ARE editable — that is where a missing
+                         dependency is fixed
+  tests/test.sh
+  tests/system_prompt.md
+  solution/solve.sh
+
+A deliberate change to one is a GOLDEN BUMP — edit the base, run
+tools/backend_images.py, then --stamp the corpus in one commit. That is a
+project-level decision, not something to do inside a repair. If a fix
+seems to require one, STOP and report it; it almost certainly means the
+diagnosis is wrong.
+
+[RULE] Never `git mv` a task — use tools/task_status.py move.
+[RULE] Never delete a qc/ directory without confirming .qc/<slug>/ holds
+those exact blobs.
+[RULE] No provenance comments. "converted from X" / "changed because Y"
+narration fails comment hygiene in check-golden.sh. Comments state
+constraints the code cannot show. Task provenance goes in
+docs/zto-conversion/provenance.json.
+[RULE] Docs are stateless. No "formerly", "now", "no longer".
+
+
+=======================================================================
+2. THE LIFECYCLE — a task's status IS its directory
+=======================================================================
+
+  tasks/<status>/<slug>/
+
+  generated -> in-qc -> { in-rewrites -> generated
+                        | approved -> calibrated -> recoded
+                                   -> opus-evaluated -> delivered
+                        | rejected }
+
+The four states past QC mirror the evaluation process: Gemini
+calibration, the recode into a compliant model's own code, the Opus
+eval, delivery.
+
+[MECHANIC] Two moves are made by EVIDENCE, not by a person —
+approved->calibrated and recoded->opus-evaluated, by tools/eval_states.py
+reading trial rewards. The recode and every BACKWARD move are a person's.
+
+[RULE] QC EVIDENCE IS NEVER DELETED — IT MOVES. While a task is worked,
+its record rides at tasks/<status>/<slug>/qc/. On delivery it relocates
+to the permanent top-level archive .qc/<slug>/, which sits outside
+tasks/ and never ships to a client. Stripping the in-task copy is not
+deletion; the archive is byte-identical and IS the record. Never remove
+a qc/ directory without confirming .qc/<slug>/ already holds those blobs.
+
+
+=======================================================================
+3. THE GRADING CONTRACT — the heart of the corpus
+=======================================================================
+
+### The shape
+
+[MECHANIC 2026-09-08, from policy/data/policy.yaml]
+  6 to 23 `[[criterion]]` journeys per task in tests/workflows/workflows.toml
+  at least 3 numbered substeps each; totals deliberately unbanded
+  type = "binary", weight = 1.0, snake_case name <= 64 chars
+  a `Purpose:` opener, contiguous numbering, and the literal line
+    PASS if >= 90% of the numbered substeps succeed.
+
+There is NO per-criterion maximum, and adding one would make the corpus
+worse. Splitting a bundled substep so each asserts ONE checkable fact is
+the standard decidability repair, and it lengthens the criterion — a cap
+would force deleting assertions to pay for a split.
+
+The 90% bar interacts with length in the opposite direction from
+intuition: at 8 substeps a single failure sinks the criterion
+(7/8 = 87.5%); at 10, one is tolerated (9/10 = 90%). A longer journey is
+marginally more FORGIVING, never invalid.
+
+### The rule that gets violated most
+
+[RULE] EVERY CRITERION MUST FAIL ON A NOP.
+
+A nop agent does nothing. It leaves /app/generated-app exactly as the
+golden image ships it: the stamped package.json, its node_modules, the
+.env. So ANYTHING a criterion can read from that state — the manifest
+declares the stack, no source references localStorage, a dependency is
+installed — is graded by the IMAGE, not by the build. It must score 0.0
+under nop, not 1.0.
+
+The gates are exact:
+  programmatic groups   tools/boot-contract/run.sh runs them judge-free
+                        twice: an oracle leg where every criterion reads
+                        1.0, and a nop leg (fresh container, no solve.sh)
+                        where every criterion reads 0.0.
+  workflows             the nop leg of validate-task.yml must score 0.0
+                        (nop_reward_max: 0.0)
+  oracle                must clear reward >= 0.9 (oracle_reward_min: 0.9)
+
+A criterion the judge can satisfy on an empty page — a heading the
+stamped scaffold renders, a "no data" state, a static footer — is a
+BROKEN criterion, not a lenient one.
+
+[RULE] A DEAD APP IS 0 EVERYWHERE. A builder can leave an app that never
+starts while its SQLite file and sources sit on disk. tests/test.sh
+writes no verdict of its own, so rewardkit grades that state. Every
+criterion must read the SERVED app, never what a dead app left behind.
+
+### The boot contract
+
+[RULE] `npm start` serving http://localhost:3000 is the WHOLE contract.
+It is the only URL the judge opens. An oracle that misses it grades as a
+HARD task rather than a broken one — which is why this failure hides.
+
+
+=======================================================================
+4. DIFFICULTY — measured, not declared
+=======================================================================
+
+[RULE] The band is the `workflows` sub-score ALONE. Never the composite
+reward. This was decided explicitly and overrides anything you may see in
+an older doc or a difficulty sticky that reports a composite.
+
+  hard    < 0.35
+  medium  0.35 - 0.65
+  easy    0.65 - 0.80
+  > 0.80  no band — "too-easy", rewritten, never shipped as easy
+  == 0.0  NOT A MEASUREMENT
+
+[UNRESOLVED 2026-09-21] THE RULE ABOVE AND THE STAMPING TOOL DISAGREE.
+tools/stamp_difficulty.py reads `rw.get("reward")` — the COMPOSITE —
+at lines 219, 246 and 317, and hands it to band_for() at line 441. So a
+DECLARED band in task.toml may have been stamped from the composite
+while this file, and BRAIN section 7, both say the band is the workflows
+sub-score alone. Both cannot be right. Until it is resolved: read the
+tool at the current revision before citing a stamped band, and always
+say WHICH number you are quoting. Do not route around this by picking
+the convenient side — a [RULE] that contradicts a checker is a finding,
+and this one is James's to settle.
+
+[RULE] HARD IS THE BAR for work you are dispatched on. The spec says
+medium is acceptable; the project owner overrode that.
+Do not confuse that directive with the CORPUS SHAPE target, which is a
+different thing: policy.yaml distribution_targets asks for roughly
+easy 0.30 / medium 0.40 / hard 0.30 across the corpus. One is what to
+aim for on a task in hand; the other is the mix the corpus should end up
+with.
+
+WHY 0 IS NOT A MEASUREMENT, since this trips everyone: a trial whose
+BUILDER dies still writes a reward, and that reward is 0. The judge then
+grades an empty workspace, so every criterion reads "no" — and the
+record is byte-identical to one a genuinely failed build produces.
+Nothing in the record separates the two. So neither is filed.
+tools/lint_zero_rewards.py enforces this across all four reward stores.
+
+[MECHANIC] Two DIFFERENT numbers both get called "difficulty":
+  the MEASURED band   the calibration agent's mean@1 over the task's own
+                      rubric
+  the DECLARED band   the label in task.toml — what a cohort was PLANNED
+                      against, restamped from the trial that measured it
+A page reporting difficulty must say WHICH it is showing. A task is
+scaffolded at the default `too-easy` precisely so an unmeasured label is
+never mistaken for a banded one.
+
+[RULE] On an ORACLE FIX or a CSS FIX, difficulty does not matter. Fix it,
+break nothing. Tag it anyway.
+
+
+=======================================================================
+5. THE GATES — what each one actually PROVES
+=======================================================================
+THIS SECTION IS THE SINGLE OWNER OF THE GATE FACTS. No playbook restates
+them; when CI changes, this is the only place to edit.
+
+The roster is checked in (.pre-commit-config.yaml is authoritative, and
+the repo CLAUDE.md lists the commands). What follows is what they MEAN.
+
+DETERMINISTIC — the whole layer runs locally: no Docker, no network, no
+credentials, nothing but python3 and the repo checkout (two layers also
+want a binary, and say so when it is missing rather than skipping).
+  check-shape          the canonical tree both ways: nothing missing AND
+                       nothing extra
+  check-boot-contract  npm start must serve :3000
+  check-conversion     conversion residue + oracle-vs-declared-stack, no
+                       exemptions
+  check-golden         byte-pins, stack drift, comment hygiene
+  check-structured     Conftest/OPA: schema, naming, workflow bands
+  check-cue            per-file schemas
+  check-backend-contract, check-offline, check-adapters
+  lint_zero_rewards, lint_dependency_containment
+
+[MECHANIC] THIS IS THE SINGLE HIGHEST-LEVERAGE FACT FOR A WORKER: you can
+find and fix your own red without asking anyone to fetch anything. Only
+the ORACLE REWARD itself needs CI. 02_PLAY_ORACLE carries the runnable
+command list.
+
+GRADED — need CI, a model call, or a container:
+  validate-task   the oracle leg and the nop leg
+  review          the rubric judges. Its job is literally `rubric-review`,
+                  which is the name the check appears under.
+  boot-contract   (the full tools/boot-contract/run.sh, which builds)
+  stagehand       a replay — see below, it is NOT a general PR gate
+
+### rubric-review IS a gate. It is not on the not-a-gate list.
+
+[MECHANIC 2026-09-09, read off main] `review.yml` is named "Task
+Implementation Rubric Review" and its job is `rubric-review`; nothing else
+emits a check by that name. `checks-passed.yml` turns static-checks +
+rubric-review into the aggregate `Automated Checks` commit status and
+assigns the reviewer off it. So it is materially part of the readiness
+signal.
+It is ADVISORY on the recode lane, where a red is usually an exhausted
+Codex lane rather than a verdict about the task
+(.github/PULL_REQUEST_TEMPLATE/recode-task.md says so).
+And nothing anywhere is a REQUIRED status check, so a red rubric-review
+does not block a merge mechanically — it is a judgement call, like every
+other red here.
+
+### stagehand is the APPROVED-MOVE gate, not a gate every PR owes
+
+[MECHANIC 2026-09-09, read off main] There are two stagehand workflows and
+neither fires on a push or a PR opening:
+  stagehand-approved-gate.yml   workflow_dispatch by PR NUMBER. The
+      approved-move detector picks the slugs the PR moves into
+      tasks/approved/ and runs one leg per moved-in task.
+  stagehand-tests.yml           workflow_dispatch by TASK LIST, for
+      corpus-wide or ad-hoc runs.
+CONSEQUENCE: on a repair, an oracle fix, an evidence filing, or a move to
+any other state, there is nothing for stagehand to run and its ABSENCE IS
+CORRECT — not a missing verdict. Do not read a missing stagehand check as
+unmeasured unless the PR moves tasks into approved.
+
+### NOT gates — never justify a round of work
+  Wiz (any), rl-studio/*, Cursor Approval Agent, Socket, Railway previews.
+Cursor BUGBOT is different: it is not one of the gates, but an open
+Bugbot comment DOES block. See 01_PLAY_PR.
+
+### WHICH GATES RUN ON A PUSH TO A PR BRANCH
+
+[MECHANIC 2026-09-09, read off refs/heads/main — NOT a local checkout]
+  static-checks    pull_request: opened|reopened|ready_for_review|SYNCHRONIZE
+                   (+ push on branches [main] — that is the unscoped corpus
+                   run, a different thing from your PR)
+  validate-task    pull_request_target: ...|SYNCHRONIZE
+  boot-contract    pull_request: ...|SYNCHRONIZE
+  review           pull_request_target: ...|SYNCHRONIZE, + issue_comment
+  deploy-preview   pull_request: ...|SYNCHRONIZE|closed
+  stagehand        workflow_dispatch ONLY, both files (see above)
+So a push re-runs the four PR gates. Each is under a cancel-in-progress
+concurrency group keyed on the PR, so a rapid series of pushes supersedes
+itself rather than queueing a run per commit.
+
+`/ci` (ci-recheck.yml, an issue_comment workflow) dispatches EXACTLY FOUR
+workflows against the PR's current head:
+    static-checks, boot-contract, review, validate-task
+It does NOT dispatch stagehand and never has — stagehand needs its own
+dispatch with a PR number or a task list. `/ci` is the way to ask for the
+gates on a PR opened THROUGH THE API, which raises no pull_request event
+at all (GitHub's recursion guard). A second `/ci` on a head already
+rechecked is a no-op; `/ci force` dispatches anyway.
+
+HOW TO CHECK THIS YOURSELF, because it changes and it has been got wrong in
+both directions: read the `on:` block of the workflow file ON MAIN. A
+checkout can be hours behind and its `.github/workflows/` will answer
+confidently and wrongly — that exact mistake was made while writing this
+file. `git fetch origin main` first, or read the file through the API.
+
+[MECHANIC] CI SCOPE. CI computes the PR's task scope once and runs one
+job per hook only where the change reaches something that hook reads. A
+docs- or tooling-only PR is a single green job, not a vacuous matrix. So
+a red layer on a scoped PR is about THAT PR's tasks. Scope widens to the
+whole corpus when the PR touches stacks/, policy/, the corpus-wide lint
+hooks, or .pre-commit-config.yaml.
+
+[MECHANIC 2026-09-21] AND THE WIDENING IS WHAT MAKES IT LOOK LIKE BROKEN
+INFRASTRUCTURE. `policy/pr_task_scope.sh` widens on those exact paths —
+tools/stamp_stack.py and the lint_* hooks are named individually — and
+the corpus is ~5,800 tasks. Several hooks then exceed the 35-minute job
+budget in static-checks.yml and are killed, which is reported as
+`cancelled`. So a PR that touches ONE tooling file presents as two legs
+mysteriously dying at an identical wall-clock, and reads as a CI problem
+for a maintainer. It is not: it is the PR's own diff, and the remedy is
+to split the widening file into its own PR. This was published as a
+maintainer's timeout problem three times before anyone read the scope
+script.
+
+### HOW A PR LANDS — **MERGE COMMIT. NEVER SQUASH.**
+
+[RULE] WHEN A PR IS MERGED ON THIS PROJECT'S BEHALF IT IS A **MERGE
+COMMIT** — `merge_method: "merge"`, two parents, the branch's own history
+preserved in main. NEVER a squash. NEVER a rebase merge.
+
+THIS IS STATED, NOT INFERRED, AND THE INFERENCE POINTS THE OTHER WAY.
+Most of what has landed here historically is single-parent, so counting
+merged neighbours will tell you squash is normal. That is the anti-loop
+clause exactly (01_PLAY_PR section 3): frequency tells you what is
+PERMITTED and never what is CORRECT. An observation of practice does not
+overwrite an instruction.
+
+THE TELL, if you ever need to check what a commit was:
+    git rev-list --parents -n1 <sha> | wc -w     2 = squash, 3+ = merge
+
+[MEASURED 2026-09-21] 334 PRs were squash-merged against this rule, on
+the strength of "this repo squash-merges". Nothing was destroyed — every
+head commit is still reachable and each squash subject carries its
+`(#NNNN)` — but the per-branch history is out of main's first-parent
+line permanently, and `git log --merges` cannot see any of that work.
+
+[MECHANIC] KNOWN-RED BASELINE. On unscoped (main) runs, check-conversion,
+check-golden and check-boot-contract NAME tasks that are already broken
+corpus-wide. That is pre-existing debt. Do not "fix" it with an
+exemption, and do not adopt it as your PR's problem — the
+reproduce-on-main rule in each playbook tells you what to do instead.
+
+
+=======================================================================
+6. HOW TO BE RIGHT HERE
+=======================================================================
+These apply to every job in every playbook. Each one is a mistake that
+was actually made, not a maxim.
+
+1. OPEN THE PRIMARY SOURCE BEFORE CONCLUDING. Reasoning over a summary
+   instead of the artifact produced three separate wrong calls. A sticky,
+   a run title and a check name are all summaries.
+
+2. A STALE CHECKOUT IS NOT THE PRIMARY SOURCE. This is the sharpest
+   version of rule 1 and it is easy to feel safe inside. A working tree
+   answers instantly and with total confidence about a file that changed
+   on main six hours ago. While writing THIS file, the gate triggers were
+   read out of `.github/workflows/` and reported as fact; main had
+   carried the opposite for hours. `git fetch origin main` first, name
+   the ref or the SHA you read, and treat "I read the file" as a claim
+   about a REVISION, never about the repo.
+
+3. A GREEN CHECK CAN MEAN NOTHING RAN.
+   - A disabled workflow does not FAIL; its jobs come back CANCELLED, and
+     a cancelled check run stays attached to the commit forever and never
+     refreshes. The PR reads red while nothing was measured.
+   - CANCELLED != FAILED. A bulk run-reap leaves hundreds of cancelled
+     runs; they mean UNMEASURED.
+   - A BARE check name is the matrix shell. A PARAMETRISED one
+     (`stagehand (tasks/approved/x)`) carries the verdict.
+   - A green sticky describes THE COMMIT IT NAMES, which may not be the
+     head. The footer says which.
+   - A `timeout-minutes` EXPIRY IS REPORTED AS `cancelled`, NOT failure.
+     It therefore reads as an interruption worth re-running when it is a
+     LIMIT — and a re-run spends the same budget reaching the same wall.
+     Ask what cancelled it before re-running anything.
+   - ON A `queued` CHECK RUN, `started_at` IS WHEN THE LEG WAS CREATED,
+     not when it began executing. Elapsed time measured against it
+     reports a queue that has not started as healthy fan-out.
+   - AN ABSENT CHECK IS NOT A RED ONE. Establish whether that gate was
+     ever supposed to run on this kind of PR before treating it as a gap.
+
+4. SAY WHAT YOU HAVE NOT VERIFIED. Do not infer state from timing or
+   adjacency. "The run finished so it must have passed" is not a reading.
+
+5. DO NOT GENERALISE ONE OBSERVED CAPABILITY INTO A NEIGHBOURING ONE.
+   Proving you can do X does not prove you can do the adjacent Y. Test
+   the specific verb. This error has been made twice.
+
+6. ONE CHANGE BUYS ONE UNIT. An intervention only lands if the graded
+   thing routes through the path you changed. Do not broadcast a rule
+   from a single success, and overshoot rather than assume leverage.
+
+7. KILL LOOPS. Two failed repair rounds on the same red, two dead trials,
+   a number moving the wrong way — all the same signal. Converging looks
+   like 0.71 -> 0.50 -> 0.38. Looping looks like 0.67 -> 0.86. STOPPING
+   IS A SUCCESSFUL OUTCOME; report what you learned.
+
+
+=======================================================================
+7. STOP CONDITIONS AND THE HANDOFF — every playbook repeats these
+=======================================================================
+Unlike the gate facts above, these do not change when the repo changes,
+so the playbooks restate them deliberately. Repetition is the point.
+
+STOP AND REPORT, do not push through:
+  two repair rounds on the SAME red check, still red
+  two trials errored / cancelled / no REWARD line
+  a run not terminal in about two hours
+  the number flat, or moving AWAY, across two rounds
+  a very large token spend with no valid measurement yet
+
+A HOLD is a RESULT, not a failure.
+
+THE HANDOFF YOU LEAVE. Whoever picks this up sees NOTHING you saw:
+  WHAT I CHANGED   files and lines, not intent
+  THE PROOF        the command and its output, or "none"
+  STATE            branch, head SHA, what is green and what is red
+  NEXT             the single next action
+  NOT VERIFIED     everything you assumed, including anything that needs
+                   CI (the oracle reward always does)

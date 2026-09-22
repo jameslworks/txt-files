@@ -1,0 +1,192 @@
+=======================================================================
+03_PLAY_AUTHOR — author ONE new task from an issue
+Paste after 00_CORPUS. Add 04_DOMAINS — authoring always picks a domain.
+=======================================================================
+
+Tags as in 00_CORPUS: [RULE] does not expire. [MECHANIC] measured, dated,
+your observation beats it. [SNAPSHOT] stale on sight.
+
+
+=======================================================================
+1. THE PROCEDURE IS A SKILL, NOT THIS FILE
+=======================================================================
+
+[RULE] Use `.claude/skills/task-creator/`. It carries the canonical
+workflow and, in its references/, the conversion rules and the residue
+catalogue. Do not reconstruct the steps from memory or from this file —
+the skill is maintained and this file is not.
+
+  Claude Code:  /task-creator
+  the skill's references/ hold the conversion + residue material
+
+This file carries only what the skill cannot: the JUDGMENT about what
+makes a criterion good, which is where authored tasks actually fail
+review.
+
+[MECHANIC] New tasks enter the lifecycle at `generated` ONLY.
+
+Related skills, when the shape calls for them:
+  tidy-tasks       format/lint/sort a task without changing meaning
+  ast-recode       the recode pass over calibrated tasks
+  task-review      pre-rollout review, 4 judges, 4-level verdict
+
+
+=======================================================================
+2. WHAT MAKES A CRITERION GOOD
+=======================================================================
+This is the whole craft. Everything else is schema.
+
+### (a) It must fail on a nop — design this in, do not discover it later
+
+[RULE] A nop agent leaves /app/generated-app exactly as the golden image
+ships it: the stamped package.json, its node_modules, the .env. Anything
+your criterion can read from THAT state is graded by the image, not the
+build.
+
+Broken criteria that look fine:
+  "the manifest declares React"          the image already declares it
+  "no source references localStorage"    true of an empty app
+  "the dependency is installed"          the image installed it
+  "the page shows a heading"             if the scaffold renders one
+  "an empty state says 'no data'"        if the scaffold renders one
+
+The test to apply to every substep as you write it: IF THE BUILDER DID
+NOTHING, WOULD THIS STILL PASS? If yes, it is broken, not lenient.
+
+Each substep must observe something ONLY THE BUILT APP PRODUCES.
+
+### (b) Force the app to DERIVE a value
+
+[RULE] Prefer an assertion a hardcoded string cannot satisfy.
+
+  weak    the page shows "Total: $412.50"
+  strong  add two named line items, then the total reads the sum of them,
+          half-up to 2dp
+
+A builder that hardcodes the string passes the first and fails the
+second. The second also survives a fixture change; the first does not.
+
+[RULE] Every asserted string and number must be CLICK-VERIFIED against
+the oracle source. An assertion nobody checked against the reference is
+how a task ships with an oracle that cannot pass its own rubric.
+
+### (c) One checkable fact per substep
+
+[RULE] Splitting a bundled substep so each asserts one fact is the
+standard decidability repair. It makes the criterion LONGER, and that is
+correct — there is no per-criterion maximum, precisely so that a split
+never costs you an assertion.
+
+  bundled   "3. The order is created, the stock decrements, and the
+             confirmation email is queued."
+  split     "3. The order appears in the ledger with status PENDING.
+             4. The product's remaining stock decreases by the ordered
+                quantity.
+             5. The outbox holds one queued confirmation for that order."
+
+A bundled substep is scored by a judge as one thing, so two of the three
+facts go ungraded.
+
+### (d) It reads as a user journey
+
+[RULE] A criterion is a JOURNEY: at least 3 numbered substeps, contiguous,
+with a `Purpose:` opener and the literal closing line
+`PASS if >= 90% of the numbered substeps succeed.` 5-8 substeps is the
+usual shape.
+
+[RULE] The PRD's flows must read as user journeys too — NEVER one bullet
+per criterion, and NEVER a leaked criterion identifier. The brief is a
+product spec a human could build from, not a rubric in disguise. A
+builder that can see the rubric shape optimises for it.
+
+### (e) Assert the SERVED app
+
+[RULE] A dead app is 0 everywhere. tests/test.sh writes no verdict of its
+own, so a builder can leave an app that never starts while its SQLite
+file and sources sit on disk, and rewardkit will grade THAT. So every
+criterion reads the served app — never a file on disk, never the
+manifest, never node_modules.
+
+
+=======================================================================
+3. THE PROGRAMMATIC GROUPS
+=======================================================================
+
+tests/backend/backend.py and tests/frontend/frontend.py have the same
+no-free-pass rule, and it is checked mechanically: tools/boot-contract
+runs them judge-free twice — an ORACLE leg where every criterion must
+read 1.0, and a NOP leg (fresh container, no solve.sh, same boot replay)
+where every criterion must read 0.0.
+
+[RULE] Write them on rewardkit's builtins first:
+  http_status_equals, http_response_contains, sqlite_query_equals,
+  command_output_matches (over `psql "$DATABASE_URL"`)
+Use the golden helpers ONLY for what a builtin cannot express, and every
+helper asserts the BUILT APP — never the manifest, never node_modules.
+
+
+=======================================================================
+4. THE THINGS A TASK MUST DECLARE
+=======================================================================
+All of these are STAMPED by tools, never typed by hand. Typing one by
+hand is how a task ships internally inconsistent.
+
+  [metadata].domain              tools/stamp_stack.py <slug> --domain
+                                 see 04_DOMAINS for the choice
+  [metadata].backend             tools/stamp_stack.py <slug> --backend
+                                 must match what the oracle implements
+  [metadata].stack               tools/stamp_stack.py
+                                 synced in three places: task.toml,
+                                 environment/package.json + lockfile, and
+                                 the PRD's Tech Stack section
+  rubric = "Rn" per criterion    tools/rubric_tests.py stamp --apply
+  [metadata].rubric_categories   DERIVED from the criteria, in file order,
+                                 one per criterion, duplicates kept
+  difficulty                     starts at the default `too-easy` so an
+                                 unmeasured label is never mistaken for a
+                                 measured band
+
+[RULE] Vanilla / framework-less is banned.
+[RULE] The declared stack and backend must be what the ORACLE actually
+implements. check-conversion.sh enforces both with no exemptions.
+Diversification happens through rebuild targets, never relabeling.
+
+
+=======================================================================
+5. instruction.md IS THE BUILDER'S COMPLETE INPUT
+=======================================================================
+
+There is no prompt template and no inliner. The file IS what the builder
+sees. It is the bare product spec followed by
+`## Workspace & Build Contract` — workspace path, the `**Frontend:**` and
+`**Backend:**` stack lines, available services, the build/run contract,
+and the stamped Network bullet.
+
+[RULE] The Build & run bullet ends with the STAMPED STOP SENTENCE: the
+builder stops the server and every background process it started before
+finishing. This is not style. agy's print mode never exits while a
+process is alive, and the verifier boots the app itself.
+Stamped by tools/stamp_build_run_line.py; the schema requires it and
+forbids the old leave-it-running wording.
+
+[RULE] It carries NO timeout line and NO anti-cheat trailer. The timeout
+is harness plumbing in task.toml [agent].timeout_sec, and telling a
+builder not to cheat belongs to the harness, not to a product brief.
+
+
+=======================================================================
+6. BEFORE YOU CALL IT DONE
+=======================================================================
+
+  - the deterministic layers, scoped to the new task (see 02_PLAY_ORACLE
+    section 1 for the list — they all run locally)
+  - the nop question asked of EVERY substep, one at a time
+  - every asserted string and number traced to the oracle source
+  - the PRD read as a product brief: does it leak the rubric?
+  - the oracle actually implements the declared stack and backend
+
+Then report as one pass:
+  WHAT I CHANGED / THE PROOF / STATE / NEXT / NOT VERIFIED
+
+[RULE] The oracle reward needs CI. You cannot produce it locally. Say so
+rather than implying the task is proven.

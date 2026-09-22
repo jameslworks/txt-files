@@ -1,0 +1,251 @@
+=======================================================================
+04_DOMAINS — the reference sheet for a domain call
+Paste alongside a playbook whenever a reframe or a domain label is in
+play. Small enough to carry anywhere.
+=======================================================================
+
+Tags as in 00_CORPUS: [RULE] does not expire. [MECHANIC] measured, dated,
+your observation beats it. [SNAPSHOT] stale on sight.
+
+
+=======================================================================
+1. THE GAP TABLE IS LIVE DATA — GENERATE IT, DO NOT READ IT HERE
+=======================================================================
+
+THERE ARE TWO DOMAIN TALLIES AND THEY COUNT DIFFERENT THINGS. Say which
+one you mean, every time:
+  THE CORPUS TALLY      what the corpus actually holds. Read from
+                        `domain = "..."` in each task.toml. This is the
+                        one the generators below print.
+  THE OPEN-PR TALLY     what is in flight and not yet on main. Read from
+                        the GitHub `dN:` label on the pull request, by
+                        tools/first_thousand.py, which folds it in beside
+                        delivered/need/selected per domain.
+A task.toml change moves the first. A label change moves the second.
+Neither moves the other. Section 3 is about the second.
+
+[RULE] Before acting on a domain gap, GENERATE the current numbers:
+
+    uv run python tools/distribution_report.py
+
+That reads policy/data/target-distribution.yaml — the 1000-task target
+for the frontend-family and backend axes, the product domains, the named
+stacks, the capability floors, the difficulty contract. `--check`
+validates the file against itself.
+
+For the first-delivery view:
+    python3 tools/first_thousand.py report
+
+Both are advisory. [RULE] Adoption happens through rebuild targets, never
+through relabeling.
+
+WHY THIS FILE NO LONGER PRINTS THE TABLE: a stale gap table has already
+caused a wrong call here — D7 read as heavily oversupplied in an older
+table and was nearly full in the current one, and the sign of the
+decision flipped. A table pasted into a reference sheet is stale the
+moment a task moves. The generator is three seconds.
+
+[SNAPSHOT — for SHAPE ONLY, do not act on these numbers]
+The last published shape had EVERY listed domain UNDER target, with the
+largest shortfalls at D1 Marketing, D4 Content & Publishing and D2
+E-commerce, and D7 Data & Analytics essentially full. The consequence of
+that shape — which may or may not still hold — is that moving a task OFF
+a nearly-full domain buys almost nothing; the value is moving tasks OUT
+of the domains that are not short at ALL and INTO the short ones.
+CHECK WHICH DOMAINS ARE SHORT TODAY BEFORE APPLYING THAT REASONING.
+
+Target shares from the client doc, for context (these are the CONTRACT,
+so they move rarely):
+   D1 12% · D2 12% · D3 11% · D4 11% · D5 9% · D6 7% · D7 11% ·
+   D8 8% · D9 9% · D10 5% · D12 5%
+   with a floor of at least 50 tasks in every category.
+
+
+=======================================================================
+2. THE DEFINITIONS — the CORE ACTION decides, not the subject
+=======================================================================
+
+D1 MARKETING & LANDING PAGES
+   Brand presentation, lead capture, marketing content management —
+   landing pages, portfolios, event pages, agency sites — with a backend
+   CMS, a lead pipeline and admin auth.
+   CORE ACTION: converting a VISITOR INTO A LEAD or donor.
+   NOT selling products (-> D2). NOT an operational tool (-> D3).
+
+D2 E-COMMERCE & MARKETPLACE
+   Browse a catalog, add to cart, complete a purchase — with server-side
+   inventory, order persistence and authenticated buyer/seller roles.
+   DEFINING PATTERN: catalog -> cart -> checkout -> order lifecycle.
+   A cart is not strictly required; the ordering lifecycle and
+   server-side inventory are. A returns/RMA back office and a
+   stock-allocation console both file here in practice.
+
+D3 SAAS & BUSINESS TOOLS
+   Multi-user internal operational software: project management, CRM, HR
+   portals, form builders, booking systems, invoicing. RBAC and
+   persistent state. The app is the tool a team uses daily.
+   NOT a storefront (-> D2), NOT a publication (-> D4).
+
+D4 CONTENT & PUBLISHING
+   Authoring, editing, organizing and reading structured written content
+   — blogs, news, docs, wikis, CMS, magazines, recipes — with
+   author/editor roles, an editorial workflow (draft -> review ->
+   publish) and reader engagement (comments, search, tags).
+   NOT courses with grading (-> D6).
+
+D5 SOCIAL & COMMUNICATION
+   User-to-user social interaction: posting, commenting, voting,
+   following, messaging, community discussion, with authenticated
+   profiles and a server-side social graph.
+   CORE VALUE: the social graph and member-generated conversation.
+   NOT commerce (-> D2), NOT staff-authored publication (-> D4).
+   >>> THE MOST COMMONLY MISFILED DOMAIN. A staff broadcast tool with an
+   approval gate and no member-to-member interaction is D4, not D5. If
+   there is no social graph, it is not D5. <<<
+
+D6 EDUCATION & LEARNING
+   Structured learning content with student assessment and progress
+   tracking; instructor/student roles and server-side grading. The
+   defining feature is a teacher-student relationship with scored
+   evaluation.
+
+D7 DATA & ANALYTICS
+   Data ingestion, aggregation, visualization and monitoring —
+   dashboards, chart builders, KPI trackers, reporting. Distinguished
+   from D3 by the ABSENCE of workflow/task management: the app shows
+   data, it does not manage operations.
+
+D8 ENTERTAINMENT & MEDIA
+   Streaming, curating and consuming multimedia (audio, video, film,
+   photography) with a server-side media catalog and persistent user
+   libraries — playlists, watchlists, playback progress.
+   NOT purchasing goods (-> D2), NOT editorial text (-> D4).
+
+D9 FINANCE & PRODUCTIVITY
+   Personal financial management (budgeting, expenses, portfolios,
+   calculators) and individual productivity (to-dos, notes, Pomodoro).
+   The user manages their OWN money or tasks — not a team's projects
+   (-> D3), not a catalog (-> D2).
+
+D10 HEALTH, FITNESS & LIFESTYLE
+   Physical health, body metrics, fitness routines, nutrition, wellness,
+   clinical care, with server-side health computations (1RM, calories,
+   BMI) and persistent health records. NOT personal finance (-> D9).
+
+(THERE IS NO D11. The catalog in policy/data/policy.yaml runs D1-D10 and
+then D12 — verified 2026-09-08. It is a gap in the numbering, not a
+domain someone forgot to document. Do not invent one.)
+
+D12 TRAVEL & LOCAL SERVICES
+   Trip planning, local discovery, booking location-based services —
+   trip planners, booking portals, weather dashboards, city guides, maps
+   — with server-side availability checking and persistent trip/booking
+   records. NOT internal room scheduling (-> D3).
+
+
+=======================================================================
+3. THE TWO ACTIONS, WHICH ARE NOT THE SAME THING
+=======================================================================
+
+### 1. LABEL SWAP — metadata. SAFE.
+The OPEN-PR tally is read off the GitHub `dN:` label, so swapping it
+moves that number. It does NOT move the corpus tally, which reads
+task.toml — only a prose reframe (action 2) does that. Swapping a label
+does not move the head, does not stale the stickies, does not re-fire
+gates. A merge-ready PR stays merge-ready.
+
+[MECHANIC] MECHANICS THAT BITE: read the PR's COMPLETE current label set
+FIRST, then write it back WHOLE with the domain swapped. The update call
+REPLACES the set — a partial list silently drops `hard`,
+`gemini-calibrated`, `priority-1`.
+
+### 2. PROSE REFRAME — a commit. Belongs to the PR's AUTHOR.
+Rewrite the nouns in instruction.md, restamp with
+`tools/stamp_stack.py <slug> --domain`.
+
+[RULE] On a PR you did not open you never push — post the exact noun
+mapping as a comment instead.
+
+[MECHANIC] It moves the head, which re-fires the rubric judges: PRs have
+gone from 0 and 2 rubric failures to 4 on the fresh run of otherwise
+unchanged content. NEVER TRADE A MERGE-READY PR FOR A DOMAIN TICK
+WITHOUT SAYING SO.
+
+[RULE] A LABEL SWAP ALONE LEAVES THE TASK HALF-REFRAMED — the tally is
+right, the brief still reads as the old domain. Always say that out loud.
+
+ALSO: some PRs carry NO domain label while task.toml declares one. Those
+land in first_thousand.py's `unlabelled` bucket — invisible to the
+OPEN-PR tally though the task itself is labelled. Pure gap, free to fix.
+
+[RULE] The domain mix is reached by REFRAMING a task's description, never
+by rebuilding or renaming the app. A task that changes PRODUCT changes
+NAME, and that is a different operation: tools/rename_task.py.
+
+
+=======================================================================
+4. WHAT MAKES A REFRAME HONEST
+=======================================================================
+
+[RULE] Same workflows. Same rules. Same refusals. Same figures. Only the
+nouns change. ZERO lines of solution/app/ move.
+
+If a single rule has to be RE-MOTIVATED rather than renamed, it is a
+stretch — rank it lower and name the clause that is the problem.
+(Real example: a harbour-swim entry desk reframes cleanly into a
+limited-stock release checkout, EXCEPT the "18 or over on race day" rule,
+which has to become an age-restricted-product gate. Coherent, but that
+one clause is re-motivated, not renamed.)
+
+[RULE] Some products ARE their domain and have NO honest reframe:
+   - time-series gap-fill with versioned fill policies -> irreducibly D7
+   - latency percentiles, SLA breach pricing, queue-drain slopes -> D7
+   - telemetry ingestion quota and projected spend -> D7
+   - envelope budgeting with period close and rollover -> finance, full
+     stop
+Forcing one of these produces a task that LIES about what it is. That is
+worse than the gap. Say "no natural fit" and move on.
+
+
+=======================================================================
+5. A WORKED GOOD REFRAME (D12 -> D2)
+=======================================================================
+
+departure-ledger, a tour-operator seat-allotment console:
+
+   departure                 -> product drop
+   total capacity            -> total stock
+   partner allotment         -> reseller allocation
+   seat hold                 -> reservation line against a named order
+   net fare + commission     -> wholesale price + marketplace commission
+
+Everything survives untouched: the committed/remaining arithmetic,
+`gross value = qty x net price`, half-up commission to 2dp, the
+over-allocation refusal, the closed-state refusal, the cross-partner 403,
+the snapshot export/restore validation.
+
+That is what a relabel looks like. IF YOUR MAPPING TABLE CANNOT BE
+WRITTEN THAT CLEANLY, YOU ARE REWRITING, NOT REFRAMING.
+
+
+=======================================================================
+6. A WORKED MISFILE (D5 -> D4)
+=======================================================================
+
+pulsedesk, an internal broadcast desk, was labelled D5 Social. It has no
+user-to-user interaction, no social graph, no posting/commenting/voting/
+following — which is the ENTIRETY of D5's definition.
+
+What it actually models is D4's editorial workflow verbatim: an Editor
+DRAFTS a broadcast, an Approver is the only role that may queue a
+Critical one or mark one SENT (draft -> review -> publish with a
+server-enforced approval gate); channels are publications with a cadence
+ceiling and an editorial budget; the ledger's filter/search/CSV export is
+content organization.
+
+Zero behaviour change needed — the nouns were already publishing nouns.
+And at the time, D4's shortfall was larger than D5's, so the correction
+and the gap-fill pointed the same way.
+
+[RULE] WHEN A DOMAIN LOOKS WRONG, CHECK IT AGAINST THE DEFINITION BEFORE
+ASSUMING IT IS RIGHT. Misfiles are common and fixing one is free.
